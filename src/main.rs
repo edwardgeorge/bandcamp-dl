@@ -2,6 +2,7 @@ use std::{error::Error, path::Path, process::ExitCode, sync::Arc};
 
 mod api;
 mod cookies;
+mod file;
 mod http;
 use cliclack::{intro, multi_progress, outro, outro_cancel, progress_bar, spinner, MultiProgress};
 use reqwest::Client;
@@ -41,7 +42,6 @@ async fn download_all(
         let progress = progress.clone();
         let path = dest.join(it.to_path());
         let title = it.display();
-        cliclack::log::info(format!("{}", it.to_path().display())).unwrap();
         let j = spawn(async move {
             let itemp = progress.add(spinner());
             itemp.start(&title);

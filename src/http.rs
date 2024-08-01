@@ -85,13 +85,12 @@ pub async fn download_file(
             .into());
         }
     }
-    let mut f = atomic_write_file::AtomicWriteFile::open(target_file)?;
+    let mut f = crate::file::AtomicFile::open(target_file).await?;
     let mut bytestream = r.bytes_stream();
     while let Some(v) = bytestream.next().await {
         let b = v?;
-        // TODO: this needs to be async
-        f.write_all(&b)?;
+        f.write_all(&b).await?;
     }
-    f.commit()?;
+    f.commit().await?;
     Ok(())
 }
