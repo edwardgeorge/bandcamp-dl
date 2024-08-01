@@ -1,9 +1,11 @@
-use std::{error::Error, sync::Arc};
+use std::{error::Error, io::Write, path::Path, sync::Arc};
 
+use futures_util::StreamExt as _;
 use mailparse::DispositionType;
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
 use reqwest_cookie_store::CookieStoreMutex;
+use tokio::fs::create_dir_all;
 
 pub fn get_client(cs: Option<Arc<CookieStoreMutex>>) -> Result<Client, Box<dyn Error>> {
     let mut cb = Client::builder()
@@ -41,4 +43,55 @@ pub fn filename_from_disposition(cd: &str) -> Result<String, Box<dyn Error>> {
         )
         .into())
     }
+}
+
+pub async fn download_file(
+    client: &Client,
+    url: &str,
+    target: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let r = client.get(url).send().await?.error_for_status()?;
+    let len: u64 = r
+        .headers()
+        .get("Content-length")
+        .ok_or("No content-length header")?
+        .to_str()?
+        .parse()?;
+    let disposition = r
+        .headers()
+        .get("Content-disposition")
+        .ok_or("No content-disposition header")?
+        .to_str()?;
+    let filename = crate::http::filename_from_disposition(disposition)?;
+    let target_file = target.join(filename);
+    if !target.exists() {
+        create_dir_all(target).await?;
+    } else if target_file.exists() {
+        if target_file.is_file() {
+            let meta = target_file.metadata()?;
+            if meta.len() != len {
+                log::info!(
+                    "File '{}' is not the expected size... overwriting...",
+                    target_file.display()
+                );
+            } else {
+                return Ok(());
+            }
+        } else {
+            return Err(format!(
+                "File '{}' already exists and is not a regular file!",
+                target_file.display()
+            )
+            .into());
+        }
+    }
+    let mut f = atomic_write_file::AtomicWriteFile::open(target_file)?;
+    let mut bytestream = r.bytes_stream();
+    while let Some(v) = bytestream.next().await {
+        let b = v?;
+        // TODO: this needs to be async
+        f.write_all(&b)?;
+    }
+    f.commit()?;
+    Ok(())
 }
