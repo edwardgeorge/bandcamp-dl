@@ -1,13 +1,47 @@
-use std::error::Error;
+use std::{error::Error, fmt::Display, str::FromStr};
 
 use reqwest::Url;
 use reqwest_cookie_store::{CookieStore, CookieStoreMutex, RawCookie};
-use rookie::firefox;
+use rookie::{enums::Cookie, firefox};
 use time::OffsetDateTime;
 
-pub fn get_cookies() -> Result<CookieStoreMutex, Box<dyn Error>> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Browser {
+    Firefox,
+}
+
+impl Browser {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Firefox => "firefox",
+        }
+    }
+    fn get_cookies(&self, domains: Option<Vec<String>>) -> Result<Vec<Cookie>, Box<dyn Error>> {
+        Ok(match self {
+            Self::Firefox => firefox(domains)?,
+        })
+    }
+}
+
+impl FromStr for Browser {
+    type Err = Box<dyn Error>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "firefox" => Ok(Browser::Firefox),
+            _ => Err(format!("Unknown/Unsupported browser '{s}").into()),
+        }
+    }
+}
+
+impl Display for Browser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
+pub fn get_cookies(browser: Browser) -> Result<CookieStoreMutex, Box<dyn Error>> {
     let mut cs = CookieStore::new(None);
-    for c in firefox(Some(vec![
+    for c in browser.get_cookies(Some(vec![
         "bandcamp.com".to_string(),
         ".bandcamp.com".to_string(),
     ]))? {

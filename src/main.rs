@@ -5,6 +5,7 @@ mod cookies;
 mod file;
 mod http;
 use cliclack::{intro, multi_progress, outro, outro_cancel, progress_bar, spinner, MultiProgress};
+use cookies::Browser;
 use reqwest::Client;
 use std::time::Duration;
 use tokio::{spawn, sync::Semaphore, time::sleep};
@@ -68,7 +69,7 @@ async fn download_item(client: &Client, url: &str, target: &Path) -> Result<(), 
 }
 
 async fn run() -> Result<(), Box<dyn Error>> {
-    let c = cookies::get_cookies()?;
+    let c = cookies::get_cookies(Browser::Firefox)?;
     let client = http::get_client(Some(Arc::new(c)))?;
     let summary = collection_summary(&client).await?;
     let s = spinner();

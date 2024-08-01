@@ -78,6 +78,7 @@ impl Drop for AtomicFile {
             return;
         }
         let p = self.temp_path.clone();
+        // TODO: should we just do this sync as this only happens in an error condition?!
         spawn(async move {
             let _ = remove_file(&p).await;
         });
