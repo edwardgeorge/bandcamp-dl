@@ -45,11 +45,18 @@ pub fn filename_from_disposition(cd: &str) -> Result<String, Box<dyn Error>> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Outcome {
+    Download,
+    Redownload,
+    Existing,
+}
+
 pub async fn download_file(
     client: &Client,
     url: &str,
     target: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Outcome, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
     let len: u64 = r
         .headers()
@@ -64,6 +71,7 @@ pub async fn download_file(
         .to_str()?;
     let filename = crate::http::filename_from_disposition(disposition)?;
     let target_file = target.join(filename);
+    let mut outcome = Outcome::Download;
     if !target.exists() {
         create_dir_all(target).await?;
     } else if target_file.exists() {
@@ -74,8 +82,9 @@ pub async fn download_file(
                     "File '{}' is not the expected size... overwriting...",
                     target_file.display()
                 );
+                outcome = Outcome::Redownload;
             } else {
-                return Ok(());
+                return Ok(Outcome::Existing);
             }
         } else {
             return Err(format!(
@@ -92,5 +101,5 @@ pub async fn download_file(
         f.write_all(&b).await?;
     }
     f.commit().await?;
-    Ok(())
+    Ok(outcome)
 }

@@ -6,6 +6,7 @@ mod file;
 mod http;
 use cliclack::{intro, multi_progress, outro, outro_cancel, progress_bar, spinner, MultiProgress};
 use cookies::Browser;
+use http::Outcome;
 use reqwest::Client;
 use std::time::Duration;
 use tokio::{spawn, sync::Semaphore, time::sleep};
@@ -46,26 +47,36 @@ async fn download_all(
         let j = spawn(async move {
             let itemp = progress.add(spinner());
             itemp.start(&title);
-            match download_item(&client, &url, &path).await {
-                Ok(_) => itemp.stop(format!("{}: downloaded", title)),
-                Err(e) => itemp.error(format!("Error downloading {}: {e}", title)),
-            }
+            let out = match download_item(&client, &url, &path).await {
+                Ok(o) => {
+                    itemp.stop(format!("{}: downloaded", title));
+                    Some(o)
+                }
+                Err(e) => {
+                    itemp.error(format!("Error downloading {}: {e}", title));
+                    None
+                }
+            };
             p.inc(1);
             //itemp.stop("finished");
             sleep(Duration::from_secs(1)).await;
             drop(a);
+            out
         });
         handles.push(j);
     }
     for h in handles.drain(..) {
-        h.await.unwrap();
+        let _i = h.await.unwrap();
     }
 }
 
-async fn download_item(client: &Client, url: &str, target: &Path) -> Result<(), Box<dyn Error>> {
+async fn download_item(
+    client: &Client,
+    url: &str,
+    target: &Path,
+) -> Result<Outcome, Box<dyn Error>> {
     let u = get_download_link(client, url, "flac").await?;
-    http::download_file(client, &u, target).await?;
-    Ok(())
+    Ok(http::download_file(client, &u, target).await?)
 }
 
 async fn run() -> Result<(), Box<dyn Error>> {
