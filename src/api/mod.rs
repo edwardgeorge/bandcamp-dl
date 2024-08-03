@@ -92,11 +92,15 @@ pub async fn get_download_link(
     Err(format!("No page-data for download at: {}", url).into())
 }
 
-pub async fn list_remaining_collection(
+pub async fn list_remaining_collection<F>(
     client: &Client,
     fan_id: u64,
     profile: &ProfileData,
-) -> Result<Vec<(Item, String)>, Box<dyn Error>> {
+    progress_cb: Option<F>,
+) -> Result<Vec<(Item, String)>, Box<dyn Error>>
+where
+    F: Fn(usize),
+{
     let mut result: Vec<_> = profile.iter_collection().collect();
     let mut remaining = profile.collection_count - profile.collection_data.batch_size;
     let mut last_token = profile.collection_data.last_token.clone();
@@ -112,6 +116,9 @@ pub async fn list_remaining_collection(
         .await
         .unwrap();
         result.extend(items.iter_collection());
+        if let Some(f) = &progress_cb {
+            f(result.len());
+        }
         remaining -= items.items.len();
         if !items.more_available {
             break;

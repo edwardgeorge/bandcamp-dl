@@ -1,59 +1,77 @@
-use std::{error::Error, path::Path, process::ExitCode, sync::Arc};
+use std::{error::Error, future::Future, path::Path, process::ExitCode, sync::Arc};
 
 mod api;
 mod cookies;
 mod file;
 mod http;
-use cliclack::{intro, multi_progress, outro, outro_cancel, progress_bar, spinner, MultiProgress};
+mod spin_me;
+
+use console::Emoji;
 use cookies::Browser;
 use http::Outcome;
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use lazy_static::lazy_static;
 use reqwest::Client;
 use std::time::Duration;
 use tokio::{spawn, sync::Semaphore, time::sleep};
 
 use api::*;
+use spin_me::SpinMe;
+
+const S_SPINNER: Emoji = Emoji("◒◐◓◑◇", "•oO0o");
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    intro("bandcamp-dl").unwrap();
     if let Err(e) = run().await {
-        //eprintln!("Error: {e}");
-        outro_cancel(format!("Error: {e}")).unwrap();
+        eprintln!("Error: {e}");
         ExitCode::FAILURE
     } else {
-        outro("Finished!").unwrap();
+        println!("Finished!");
         ExitCode::SUCCESS
     }
 }
 
-async fn download_all(
-    client: Arc<Client>,
-    items: &[(Item, String)],
-    dest: &Path,
-    progress: &Arc<MultiProgress>,
-) {
+fn spin_style() -> ProgressStyle {
+    ProgressStyle::default_spinner().tick_chars(&S_SPINNER.to_string())
+}
+
+fn bar_style() -> ProgressStyle {
+    ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+        .unwrap()
+        .progress_chars("##-")
+}
+
+async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path) {
     let sem = Arc::new(Semaphore::new(4));
     let mut handles = vec![];
-    let p = progress.add(progress_bar(items.len() as u64));
+    let mult = MultiProgress::new();
+    //let p = progress.add(progress_bar(items.len() as u64));
+    let p = mult.add(
+        ProgressBar::new(items.len() as u64)
+            .with_style(bar_style())
+            .with_message("Downloading collection"),
+    );
 
     for (it, url) in items {
         let a = sem.clone().acquire_owned().await.unwrap();
         let client = client.clone();
         let url = url.to_owned();
         let p = p.clone();
-        let progress = progress.clone();
+        // let progress = progress.clone();
+        let mut mult = mult.clone();
         let path = dest.join(it.to_path());
         let title = it.display();
         let j = spawn(async move {
-            let itemp = progress.add(spinner());
-            itemp.start(&title);
-            let out = match download_item(&client, &url, &path).await {
+            // let itemp = progress.add(spinner());
+            // itemp.start(&title);
+            let out = match download_item(&client, &url, &path, &title, &mut mult, &p).await {
                 Ok(o) => {
-                    itemp.stop(format!("{}: downloaded", title));
+                    // itemp.stop(format!("{}: downloaded", title));
                     Some(o)
                 }
                 Err(e) => {
-                    itemp.error(format!("Error downloading {}: {e}", title));
+                    // itemp.error(format!("Error downloading {}: {e}", title));
+                    eprintln!("Error downloading '{title}: {e})");
                     None
                 }
             };
@@ -74,36 +92,82 @@ async fn download_item(
     client: &Client,
     url: &str,
     target: &Path,
+    title: &str,
+    mult: &mut MultiProgress,
+    main_bar: &ProgressBar,
 ) -> Result<Outcome, Box<dyn Error>> {
+    let s = mult.add(
+        //&main_bar,
+        ProgressBar::new_spinner()
+            .with_style(spin_style())
+            .with_message(format!("{title}")),
+    );
     let u = get_download_link(client, url, "flac").await?;
-    Ok(http::download_file(client, &u, target).await?)
+    // let u = SpinMe::from(format!("Getting download link for {title}"))
+    //     .with_task(get_download_link(client, url, "flac"))
+    //     .try_with_result(|_, s| {
+    //         mult.remove(&s);
+    //     })
+    //     .await?;
+    s.finish();
+    mult.remove(&s);
+    let s = mult.add(
+        ProgressBar::new(0)
+            .with_style(bar_style())
+            .with_message(title.to_owned()),
+    );
+    let r = http::download_file(
+        client,
+        &u,
+        target,
+        Some(|len, pos| {
+            s.set_length(len);
+            s.set_position(pos);
+        }),
+    )
+    .await?;
+    s.finish();
+    if let Outcome::Existing = &r {
+        mult.remove(&s);
+    }
+    Ok(r)
 }
 
 async fn run() -> Result<(), Box<dyn Error>> {
-    let c = cookies::get_cookies(Browser::Firefox)?;
+    let c = SpinMe::from_str("getting cookies")
+        .with_task(async { cookies::get_cookies(Browser::Firefox) })
+        .try_with_result(|_, s| s.set_message("got cookies from browser"))
+        .await?;
     let client = http::get_client(Some(Arc::new(c)))?;
-    let summary = collection_summary(&client).await?;
-    let s = spinner();
-    s.start(format!(
-        "logged in as {} ({}). retrieving profile...",
-        summary.collection_summary.username, summary.collection_summary.fan_id,
-    ));
-    let profile = user_profile(&client, &summary.collection_summary.url)
-        .await
-        .unwrap();
-    s.stop(format!(
-        "logged in as {} ({}).",
-        summary.collection_summary.username, summary.collection_summary.fan_id,
-    ));
-    let s = spinner();
-    s.start(format!(
-        "collection_count: {}. listing remaining collection...",
-        profile.collection_count
-    ));
-    let items = list_remaining_collection(&client, summary.fan_id, &profile).await?;
-    s.stop(format!("collection_count: {}.", profile.collection_count));
-    let m = Arc::new(multi_progress("downloading..."));
-    download_all(Arc::new(client), &items, Path::new("dl"), &m).await;
-    m.stop();
+    let summary = SpinMe::from_str("checking credentials")
+        .with_task(collection_summary(&client))
+        .try_with_result(|summary, s| {
+            s.set_message(format!(
+                "logged in as {} ({})",
+                summary.collection_summary.username, summary.collection_summary.fan_id,
+            ))
+        })
+        .await?;
+    let profile = SpinMe::from_str("retrieving profile")
+        .with_task(user_profile(&client, &summary.collection_summary.url))
+        .try_with_result(|p, s| {
+            s.set_message(format!(
+                "collection_count: {}. listing remaining collection...",
+                p.collection_count
+            ))
+        })
+        .await?;
+    let progress = ProgressBar::new(profile.collection_count as u64)
+        .with_style(bar_style())
+        .with_message("retrieving latest collection");
+    progress.set_position(profile.collection_data.batch_size as u64);
+    let items = list_remaining_collection(
+        &client,
+        summary.fan_id,
+        &profile,
+        Some(|t| progress.set_position(t as u64)),
+    )
+    .await?;
+    download_all(Arc::new(client), &items, Path::new("dl")).await;
     Ok(())
 }

@@ -52,11 +52,15 @@ pub enum Outcome {
     Existing,
 }
 
-pub async fn download_file(
+pub async fn download_file<F>(
     client: &Client,
     url: &str,
     target: &Path,
-) -> Result<Outcome, Box<dyn Error>> {
+    progress_cb: Option<F>,
+) -> Result<Outcome, Box<dyn Error>>
+where
+    F: Fn(u64, u64),
+{
     let r = client.get(url).send().await?.error_for_status()?;
     let len: u64 = r
         .headers()
@@ -96,9 +100,13 @@ pub async fn download_file(
     }
     let mut f = crate::file::AtomicFile::open(target_file).await?;
     let mut bytestream = r.bytes_stream();
+    let mut bytes = 0;
+    progress_cb.as_ref().map(|f| f(len, 0));
     while let Some(v) = bytestream.next().await {
         let b = v?;
+        bytes += b.len();
         f.write_all(&b).await?;
+        progress_cb.as_ref().map(|f| f(len, bytes as u64));
     }
     f.commit().await?;
     Ok(outcome)
