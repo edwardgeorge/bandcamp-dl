@@ -80,7 +80,7 @@ pub struct DownloadItem {
 pub struct Download {
     pub description: String,
     pub encoding_name: String,
-    pub size_mb: String,
+    pub size_mb: Option<String>,
     pub url: String,
 }
 

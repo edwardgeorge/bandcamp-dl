@@ -74,7 +74,8 @@ pub async fn get_download_link(
         let a = el
             .attr("data-blob")
             .ok_or("data-blob attribute not found")?;
-        let v: DownloadData = serde_json::from_str(&a)?;
+        let v: DownloadData = serde_json::from_str(&a)
+            .map_err(|e| format!("data-blob attribute parse error: {e}"))?;
         let d = v
             .download_items
             .first()

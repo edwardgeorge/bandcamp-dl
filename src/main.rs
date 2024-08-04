@@ -176,7 +176,9 @@ where
             .with_style(spin_style())
             .with_message(format!("{title}")),
     );
-    let u = get_download_link(client, url, "flac").await?;
+    let u = get_download_link(client, url, "flac")
+        .await
+        .map_err(|e| format!("Attempting to get download link: {e}"))?;
     s.finish();
     mult.remove(&s);
     let s = mult.add(
