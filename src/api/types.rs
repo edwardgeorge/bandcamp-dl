@@ -138,7 +138,7 @@ pub struct Item {
     is_purchasable: bool,
     is_subscriber_only: bool,
     is_subscription_item: bool,
-    item_id: u64,
+    pub item_id: u64,
     item_title: String,
     item_type: String,
     item_url: String,
@@ -147,8 +147,8 @@ pub struct Item {
     tralbum_type: String,
     sale_item_id: Option<u64>,
     sale_item_type: Option<String>,
-    #[serde(flatten)]
-    other: Value,
+    // #[serde(flatten)]
+    // other: Value,
 }
 
 impl Item {
@@ -169,6 +169,9 @@ impl Item {
             sanitize_filename::sanitize(&self.item_title),
         );
         Path::new(&level1).join(&level2)
+    }
+    pub fn download_available(&self) -> bool {
+        self.download_available.unwrap_or(false)
     }
 }
 

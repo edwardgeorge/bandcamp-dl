@@ -11,7 +11,11 @@ use http::Outcome;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::time::Duration;
-use tokio::{spawn, sync::Semaphore, time::sleep};
+use tokio::{
+    spawn,
+    sync::{Mutex, Semaphore},
+    time::sleep,
+};
 
 use api::*;
 
@@ -40,16 +44,82 @@ fn bar_style() -> ProgressStyle {
         .progress_chars("##-")
 }
 
+struct DownloadStatus {
+    bar: ProgressBar,
+    downloaded: u64,
+    skipped: u64,
+    redownloading: u64,
+    errors: u64,
+}
+
+impl DownloadStatus {
+    fn new(bar: ProgressBar) -> Self {
+        let b = DownloadStatus {
+            bar,
+            downloaded: 0,
+            skipped: 0,
+            redownloading: 0,
+            errors: 0,
+        };
+        b._update();
+        b
+    }
+    fn _update(&self) {
+        let m1 = format!("{} skipped", self.skipped);
+        let m2 = format!("{} redownloaded", self.redownloading);
+        let m3 = format!("{} error", self.errors);
+        let l = self.skipped + self.redownloading + self.errors > 0;
+        let mut m = vec![
+            if self.skipped > 0 { &m1 } else { "" },
+            if self.skipped > 0 && (self.redownloading > 0 || self.errors > 0) {
+                ", "
+            } else {
+                ""
+            },
+            if self.redownloading > 0 { &m2 } else { "" },
+            if self.skipped > 0 && self.redownloading > 0 {
+                ", "
+            } else {
+                ""
+            },
+            if self.errors > 0 { &m3 } else { "" },
+        ]
+        .join("");
+        if l {
+            m = format!(" ({m})");
+        }
+        self.bar.set_position(self.downloaded);
+        self.bar.set_message(format!("downloading collection {m}"));
+    }
+    fn update(&mut self, outcome: Option<&Outcome>) {
+        self.downloaded += 1;
+        if let Some(o) = outcome {
+            match o {
+                Outcome::Download => {}
+                Outcome::Existing => {
+                    self.skipped += 1;
+                }
+                Outcome::Redownload => {
+                    self.redownloading += 1;
+                }
+            }
+        } else {
+            self.errors += 1;
+        }
+        self._update();
+    }
+}
+
 async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path) {
     let sem = Arc::new(Semaphore::new(4));
     let mut handles = vec![];
     let mult = MultiProgress::new();
-    //let p = progress.add(progress_bar(items.len() as u64));
     let p = mult.add(
         ProgressBar::new(items.len() as u64)
             .with_style(bar_style())
             .with_message("Downloading collection"),
     );
+    let p = Arc::new(Mutex::new(DownloadStatus::new(p)));
 
     for (it, url) in items {
         let a = sem.clone().acquire_owned().await.unwrap();
@@ -63,18 +133,20 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path
         let j = spawn(async move {
             // let itemp = progress.add(spinner());
             // itemp.start(&title);
-            let out = match download_item(&client, &url, &path, &title, &mut mult, &p).await {
+            let out = match download_item(&client, &url, &path, &title, &mut mult, |_| ())
+                .await
+                .map_err(|e| format!("Error downloading '{title}: {e})"))
+            {
                 Ok(o) => {
                     // itemp.stop(format!("{}: downloaded", title));
                     Some(o)
                 }
                 Err(e) => {
-                    // itemp.error(format!("Error downloading {}: {e}", title));
-                    eprintln!("Error downloading '{title}: {e})");
+                    p.lock().await.bar.suspend(|| eprintln!("{}", e));
                     None
                 }
             };
-            p.inc(1);
+            p.lock().await.update(out.as_ref());
             //itemp.stop("finished");
             sleep(Duration::from_secs(1)).await;
             drop(a);
@@ -87,14 +159,17 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path
     }
 }
 
-async fn download_item(
+async fn download_item<F>(
     client: &Client,
     url: &str,
     target: &Path,
     title: &str,
     mult: &mut MultiProgress,
-    main_bar: &ProgressBar,
-) -> Result<Outcome, Box<dyn Error>> {
+    outcome_cb: F,
+) -> Result<Outcome, Box<dyn Error>>
+where
+    F: Fn(&Outcome),
+{
     let s = mult.add(
         //&main_bar,
         ProgressBar::new_spinner()
@@ -123,6 +198,7 @@ async fn download_item(
     if let Outcome::Existing = &r {
         mult.remove(&s);
     }
+    outcome_cb(&r);
     Ok(r)
 }
 
@@ -178,7 +254,18 @@ async fn run() -> Result<(), Box<dyn Error>> {
         &profile,
         Some(|t| progress.set_position(t as u64)),
     )
-    .await?;
+    .await?
+    .into_iter()
+    .filter(|(it, _)| {
+        if !it.download_available() {
+            eprintln!("'{}' has no downloads available.", it.display());
+            false
+        } else {
+            true
+        }
+    })
+    .collect::<Vec<_>>();
+
     download_all(Arc::new(client), &items, Path::new("dl")).await;
     Ok(())
 }

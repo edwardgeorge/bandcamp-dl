@@ -54,14 +54,12 @@ pub async fn collection_items(
     client: &Client,
     req: &CollectionItemsRequest<'_>,
 ) -> Result<CollectionItemsResult, Box<dyn Error>> {
-    let r = client
+    let c = client
         .post("https://bandcamp.com/api/fancollection/1/collection_items")
         .json(req)
-        .header("Content-type", "application/json")
-        .header("X-Requested-With", "XMLHttpRequest")
-        .send()
-        .await?
-        .error_for_status()?;
+        //.header("X-Requested-With", "XMLHttpRequest")
+        .build()?;
+    let r = client.execute(c).await?.error_for_status()?;
     resp_deser(r).await
 }
 
@@ -102,24 +100,25 @@ where
     F: Fn(usize),
 {
     let mut result: Vec<_> = profile.iter_collection().collect();
-    let mut remaining = profile.collection_count - profile.collection_data.batch_size;
+    //let mut remaining = profile.collection_count - profile.collection_data.batch_size;
     let mut last_token = profile.collection_data.last_token.clone();
-    while remaining > 0 {
+    if profile.collection_count <= profile.collection_data.batch_size {
+        return Ok(result);
+    }
+    loop {
         let items = collection_items(
             &client,
             &CollectionItemsRequest {
                 fan_id,
-                count: std::cmp::min(remaining, 500),
+                count: 20,
                 older_than_token: &last_token,
             },
         )
-        .await
-        .unwrap();
+        .await?;
         result.extend(items.iter_collection());
         if let Some(f) = &progress_cb {
             f(result.len());
         }
-        remaining -= items.items.len();
         if !items.more_available {
             break;
         }
