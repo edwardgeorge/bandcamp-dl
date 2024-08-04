@@ -1,22 +1,19 @@
-use std::{error::Error, future::Future, path::Path, process::ExitCode, sync::Arc};
+use std::{error::Error, path::Path, process::ExitCode, sync::Arc};
 
 mod api;
 mod cookies;
 mod file;
 mod http;
-mod spin_me;
 
 use console::Emoji;
 use cookies::Browser;
 use http::Outcome;
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use lazy_static::lazy_static;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::time::Duration;
 use tokio::{spawn, sync::Semaphore, time::sleep};
 
 use api::*;
-use spin_me::SpinMe;
 
 const S_SPINNER: Emoji = Emoji("◒◐◓◑◇", "•oO0o");
 
@@ -31,10 +28,12 @@ async fn main() -> ExitCode {
     }
 }
 
+#[inline]
 fn spin_style() -> ProgressStyle {
     ProgressStyle::default_spinner().tick_chars(&S_SPINNER.to_string())
 }
 
+#[inline]
 fn bar_style() -> ProgressStyle {
     ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
         .unwrap()
@@ -103,12 +102,6 @@ async fn download_item(
             .with_message(format!("{title}")),
     );
     let u = get_download_link(client, url, "flac").await?;
-    // let u = SpinMe::from(format!("Getting download link for {title}"))
-    //     .with_task(get_download_link(client, url, "flac"))
-    //     .try_with_result(|_, s| {
-    //         mult.remove(&s);
-    //     })
-    //     .await?;
     s.finish();
     mult.remove(&s);
     let s = mult.add(
@@ -133,30 +126,48 @@ async fn download_item(
     Ok(r)
 }
 
+macro_rules! try_spin_inner {
+    ($v:ident, $s:ident, (), (), ()) => {};
+    ($v:ident, $s:ident, $x:ident, $y:ident, $t:expr) => {
+        let $x = $v;
+        let $y = $s;
+        $t;
+    };
+}
+
+macro_rules! try_spin {
+    ($msg:expr, $a:expr; |$x:ident, $y:ident| $t:tt) => {{
+        let s = ProgressBar::new_spinner()
+            .with_style(spin_style())
+            .with_message($msg);
+        s.enable_steady_tick(Duration::from_millis(100));
+        let r = $a;
+        match &r {
+            Ok(v) => {
+                s.finish();
+                try_spin_inner!(v, s, $x, $y, $t);
+            }
+            Err(_) => s.finish(),
+        }
+        r
+    }};
+}
+
 async fn run() -> Result<(), Box<dyn Error>> {
-    let c = SpinMe::from_str("getting cookies")
-        .with_task(async { cookies::get_cookies(Browser::Firefox) })
-        .try_with_result(|_, s| s.set_message("got cookies from browser"))
-        .await?;
+    let c = try_spin!("getting cookies", cookies::get_cookies(Browser::Firefox); |_v, s| { s.set_message("got cookies"); })?;
     let client = http::get_client(Some(Arc::new(c)))?;
-    let summary = SpinMe::from_str("checking credentials")
-        .with_task(collection_summary(&client))
-        .try_with_result(|summary, s| {
-            s.set_message(format!(
-                "logged in as {} ({})",
-                summary.collection_summary.username, summary.collection_summary.fan_id,
-            ))
-        })
-        .await?;
-    let profile = SpinMe::from_str("retrieving profile")
-        .with_task(user_profile(&client, &summary.collection_summary.url))
-        .try_with_result(|p, s| {
-            s.set_message(format!(
-                "collection_count: {}. listing remaining collection...",
-                p.collection_count
-            ))
-        })
-        .await?;
+    let summary = try_spin!("checking credentials", collection_summary(&client).await; |summary, s| {
+        s.set_message(format!(
+            "logged in as {} ({})",
+            summary.collection_summary.username, summary.collection_summary.fan_id,
+        ));
+    })?;
+    let profile = try_spin!("retrieving profile", user_profile(&client, &summary.collection_summary.url).await; |p, s| {
+        s.set_message(format!(
+            "collection_count: {}",
+            p.collection_count
+        ));
+    })?;
     let progress = ProgressBar::new(profile.collection_count as u64)
         .with_style(bar_style())
         .with_message("retrieving latest collection");
