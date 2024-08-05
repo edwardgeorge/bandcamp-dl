@@ -1,41 +1,29 @@
-use std::{error::Error, fmt::Display, str::FromStr};
+use std::error::Error;
 
+use clap::ValueEnum;
 use reqwest::Url;
 use reqwest_cookie_store::{CookieStore, CookieStoreMutex, RawCookie};
 use rookie::{enums::Cookie, firefox};
+use strum::{Display, EnumString};
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display, Default, ValueEnum)]
+#[strum(serialize_all = "lowercase")]
 pub enum Browser {
+    #[default]
     Firefox,
 }
 
 impl Browser {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Firefox => "firefox",
-        }
-    }
+    // pub fn as_str(&self) -> &'static str {
+    //     match self {
+    //         Self::Firefox => "firefox",
+    //     }
+    // }
     fn get_cookies(&self, domains: Option<Vec<String>>) -> Result<Vec<Cookie>, Box<dyn Error>> {
         Ok(match self {
             Self::Firefox => firefox(domains)?,
         })
-    }
-}
-
-impl FromStr for Browser {
-    type Err = Box<dyn Error>;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "firefox" => Ok(Browser::Firefox),
-            _ => Err(format!("Unknown/Unsupported browser '{s}").into()),
-        }
-    }
-}
-
-impl Display for Browser {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
     }
 }
 

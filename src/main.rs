@@ -1,12 +1,14 @@
 use std::{error::Error, path::Path, process::ExitCode, sync::Arc};
 
 mod api;
+mod cli;
 mod cookies;
 mod file;
 mod http;
 
+use clap::Parser;
+use cli::Options;
 use console::Emoji;
-use cookies::Browser;
 use http::Outcome;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -23,7 +25,8 @@ const S_SPINNER: Emoji = Emoji("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◇", "•oO0o");
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    if let Err(e) = run().await {
+    let opts = cli::Options::parse();
+    if let Err(e) = run(opts).await {
         eprintln!("Error: {e}");
         ExitCode::FAILURE
     } else {
@@ -124,7 +127,7 @@ impl DownloadStatus {
     }
 }
 
-async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path) {
+async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: Format, dest: &Path) {
     let sem = Arc::new(Semaphore::new(4));
     let mut handles = vec![];
     let mult = MultiProgress::new();
@@ -147,7 +150,7 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path
         let j = spawn(async move {
             // let itemp = progress.add(spinner());
             // itemp.start(&title);
-            let out = match download_item(&client, &url, &path, &title, &mut mult, |_| ())
+            let out = match download_item(&client, &url, format, &path, &title, &mut mult, |_| ())
                 .await
                 .map_err(|e| format!("Error downloading '{title}: {e})"))
             {
@@ -176,6 +179,7 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], dest: &Path
 async fn download_item<F>(
     client: &Client,
     url: &str,
+    format: Format,
     target: &Path,
     title: &str,
     mult: &mut MultiProgress,
@@ -190,7 +194,7 @@ where
             .with_style(spin_style())
             .with_message(title.to_string()),
     );
-    let u = get_download_link(client, url, "flac")
+    let u = get_download_link(client, url, format)
         .await
         .map_err(|e| format!("Attempting to get download link: {e}"))?;
     s.finish();
@@ -245,8 +249,8 @@ macro_rules! try_spin {
     }};
 }
 
-async fn run() -> Result<(), Box<dyn Error>> {
-    let c = try_spin!("getting cookies", cookies::get_cookies(Browser::Firefox); |_v, s| { s.set_message("got cookies"); })?;
+async fn run(options: Options) -> Result<(), Box<dyn Error>> {
+    let c = try_spin!(format!("getting cookies from {}", options.browser), cookies::get_cookies(options.browser); |_v, s| { s.set_message("got cookies"); })?;
     let client = http::get_client(Some(Arc::new(c)))?;
     let summary = try_spin!("checking credentials", collection_summary(&client).await; |summary, s| {
         s.set_message(format!(
@@ -282,6 +286,6 @@ async fn run() -> Result<(), Box<dyn Error>> {
     })
     .collect::<Vec<_>>();
 
-    download_all(Arc::new(client), &items, Path::new("dl")).await;
+    download_all(Arc::new(client), &items, options.format, &options.target).await;
     Ok(())
 }

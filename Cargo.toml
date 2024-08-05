@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.11", features = ["cargo"] }
+clap = { version = "4.5.11", features = ["cargo", "derive"] }
 console = "0.15.8"
 cookie = "0.18.1"
 env_logger = "0.11.5"
@@ -27,5 +27,6 @@ sanitize-filename = "0.5.0"
 scraper = "0.19.1"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.121"
+strum = { version = "0.26.3", features = ["derive"] }
 time = "0.3.36"
 tokio = { version = "1.39.2", features = ["full"] }

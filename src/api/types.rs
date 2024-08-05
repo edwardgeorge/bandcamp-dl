@@ -2,8 +2,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use strum::{Display, EnumString};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct PageContext {
@@ -183,4 +185,18 @@ pub struct MaybeError {
     pub error_message: Option<String>,
     #[serde(flatten)]
     pub resp: Value,
+}
+
+#[derive(Debug, Clone, Copy, EnumString, Display, Default, ValueEnum)]
+#[strum(serialize_all = "kebab-case")]
+pub enum Format {
+    AacHi,
+    AiffLossless,
+    Alac,
+    Flac,
+    #[default]
+    Mp3_320,
+    Mp3V0,
+    Vorbis,
+    Wav,
 }

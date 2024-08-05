@@ -68,7 +68,7 @@ pub async fn collection_items(
 pub async fn get_download_link(
     client: &Client,
     url: &str,
-    format: &str,
+    format: Format,
 ) -> Result<String, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
     let doc = Html::parse_document(&r.text().await?);
@@ -82,7 +82,7 @@ pub async fn get_download_link(
             .download_items
             .first()
             .ok_or("No download items present!")?;
-        let u = d.downloads.get(format).ok_or_else(|| {
+        let u = d.downloads.get(&format.to_string()).ok_or_else(|| {
             format!(
                 "format {format} not available in: {}",
                 d.downloads.keys().cloned().collect::<Vec<_>>().join(", ")
