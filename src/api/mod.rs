@@ -1,15 +1,17 @@
 pub mod types;
 
-use std::{error::Error, sync::OnceLock};
+use std::error::Error;
 
 use reqwest::{Client, Response};
 use scraper::{Html, Selector};
 use serde::de::DeserializeOwned;
+use tokio::sync::OnceCell;
 pub use types::*;
 
-fn page_data_sel() -> &'static Selector {
-    static MEM: OnceLock<Selector> = OnceLock::new();
-    MEM.get_or_init(|| Selector::parse("div#pagedata").unwrap())
+async fn page_data_sel() -> &'static Selector {
+    static MEM: OnceCell<Selector> = OnceCell::const_new();
+    MEM.get_or_init(|| async { Selector::parse("div#pagedata").unwrap() })
+        .await
 }
 
 pub async fn resp_deser<T>(resp: Response) -> Result<T, Box<dyn Error>>
@@ -40,8 +42,9 @@ pub async fn collection_summary(
 
 pub async fn user_profile(client: &Client, url: &str) -> Result<ProfileData, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
+    let sel = page_data_sel().await;
     let doc = Html::parse_document(&r.text().await?);
-    if let Some(el) = doc.select(page_data_sel()).next() {
+    if let Some(el) = doc.select(sel).next() {
         let a = el
             .attr("data-blob")
             .ok_or("No data-blob attribute found on pagedata element")?;
@@ -70,8 +73,9 @@ pub async fn get_download_link(
     format: Format,
 ) -> Result<String, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
+    let sel = page_data_sel().await;
     let doc = Html::parse_document(&r.text().await?);
-    if let Some(el) = doc.select(page_data_sel()).next() {
+    if let Some(el) = doc.select(sel).next() {
         let a = el
             .attr("data-blob")
             .ok_or("data-blob attribute not found")?;
