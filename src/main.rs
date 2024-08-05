@@ -19,7 +19,7 @@ use tokio::{
 
 use api::*;
 
-const S_SPINNER: Emoji = Emoji("◒◐◓◑◇", "•oO0o");
+const S_SPINNER: Emoji = Emoji("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◇", "•oO0o");
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -41,7 +41,16 @@ fn spin_style() -> ProgressStyle {
 fn bar_style() -> ProgressStyle {
     ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
         .unwrap()
-        .progress_chars("##-")
+        .progress_chars("█▓▒░▫")
+}
+
+#[inline]
+fn dl_style() -> ProgressStyle {
+    ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.cyan/blue} {decimal_bytes:>12}/{decimal_total_bytes:12} {msg}",
+    )
+    .unwrap()
+    .progress_chars("█▇▆▅▄▃▂▁  ")
 }
 
 struct DownloadStatus {
@@ -95,11 +104,11 @@ impl DownloadStatus {
         self.downloaded += 1;
         if let Some(o) = outcome {
             match o {
-                Outcome::Download => {}
+                Outcome::Download(_) => {}
                 Outcome::Existing => {
                     self.skipped += 1;
                 }
-                Outcome::Redownload => {
+                Outcome::Redownload(_) => {
                     self.redownloading += 1;
                 }
             }
@@ -183,7 +192,7 @@ where
     mult.remove(&s);
     let s = mult.add(
         ProgressBar::new(0)
-            .with_style(bar_style())
+            .with_style(dl_style())
             .with_message(title.to_owned()),
     );
     let r = http::download_file(

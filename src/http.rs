@@ -47,8 +47,8 @@ pub fn filename_from_disposition(cd: &str) -> Result<String, Box<dyn Error>> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Outcome {
-    Download,
-    Redownload,
+    Download(u64),
+    Redownload(u64),
     Existing,
 }
 
@@ -78,7 +78,7 @@ where
     })?;
     let filename = crate::http::filename_from_disposition(disposition)?;
     let target_file = target.join(filename);
-    let mut outcome = Outcome::Download;
+    let mut outcome = Outcome::Download(len);
     if !target.exists() {
         create_dir_all(target).await?;
     } else if target_file.exists() {
@@ -89,7 +89,7 @@ where
                     "File '{}' is not the expected size... overwriting...",
                     target_file.display()
                 );
-                outcome = Outcome::Redownload;
+                outcome = Outcome::Redownload(len);
             } else {
                 return Ok(Outcome::Existing);
             }
