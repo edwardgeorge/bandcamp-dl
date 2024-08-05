@@ -1,4 +1,4 @@
-use std::{error::Error, io::Write, path::Path, str::from_utf8, sync::Arc};
+use std::{error::Error, path::Path, str::from_utf8, sync::Arc};
 
 use futures_util::StreamExt as _;
 use mailparse::DispositionType;
@@ -104,12 +104,16 @@ where
     let mut f = crate::file::AtomicFile::open(target_file).await?;
     let mut bytestream = r.bytes_stream();
     let mut bytes = 0;
-    progress_cb.as_ref().map(|f| f(len, 0));
+    if let Some(f) = progress_cb.as_ref() {
+        f(len, 0);
+    }
     while let Some(v) = bytestream.next().await {
         let b = v?;
         bytes += b.len();
         f.write_all(&b).await?;
-        progress_cb.as_ref().map(|f| f(len, bytes as u64));
+        if let Some(f) = progress_cb.as_ref() {
+            f(len, bytes as u64);
+        }
     }
     f.commit().await?;
     Ok(outcome)

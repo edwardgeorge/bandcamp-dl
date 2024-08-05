@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -53,7 +54,7 @@ pub struct ProfileData {
 }
 
 impl ProfileData {
-    pub fn iter_collection<'a>(&'a self) -> impl Iterator<Item = (Item, String)> + 'a {
+    pub fn iter_collection(&self) -> impl Iterator<Item = (Item, String)> + '_ {
         self.collection_data.sequence.iter().map(|id| {
             let it = self.item_cache.collection.get(id).unwrap();
             let u = self
@@ -114,7 +115,7 @@ pub struct CollectionItemsResult {
 }
 
 impl CollectionItemsResult {
-    pub fn iter_collection<'a>(&'a self) -> impl Iterator<Item = (Item, String)> + 'a {
+    pub fn iter_collection(&self) -> impl Iterator<Item = (Item, String)> + '_ {
         self.items.iter().map(|it| {
             let u = self
                 .redownload_urls

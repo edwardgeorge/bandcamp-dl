@@ -42,9 +42,11 @@ pub async fn collection_summary(
 pub async fn user_profile(client: &Client, url: &str) -> Result<ProfileData, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
     let doc = Html::parse_document(&r.text().await?);
-    for el in doc.select(&PAGE_DATA) {
-        let a = el.attr("data-blob").unwrap();
-        let v: ProfileData = serde_json::from_str(&a)?;
+    if let Some(el) = doc.select(&PAGE_DATA).next() {
+        let a = el
+            .attr("data-blob")
+            .ok_or("No data-blob attribute found on pagedata element")?;
+        let v: ProfileData = serde_json::from_str(a)?;
         return Ok(v);
     }
     Err("No data-blob found in user profile".into())
@@ -70,12 +72,12 @@ pub async fn get_download_link(
 ) -> Result<String, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
     let doc = Html::parse_document(&r.text().await?);
-    for el in doc.select(&PAGE_DATA) {
+    if let Some(el) = doc.select(&PAGE_DATA).next() {
         let a = el
             .attr("data-blob")
             .ok_or("data-blob attribute not found")?;
-        let v: DownloadData = serde_json::from_str(&a)
-            .map_err(|e| format!("data-blob attribute parse error: {e}"))?;
+        let v: DownloadData =
+            serde_json::from_str(a).map_err(|e| format!("data-blob attribute parse error: {e}"))?;
         let d = v
             .download_items
             .first()
@@ -108,7 +110,7 @@ where
     }
     loop {
         let items = collection_items(
-            &client,
+            client,
             &CollectionItemsRequest {
                 fan_id,
                 count: 20,

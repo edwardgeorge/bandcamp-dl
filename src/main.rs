@@ -69,7 +69,7 @@ impl DownloadStatus {
         let m2 = format!("{} redownloaded", self.redownloading);
         let m3 = format!("{} error", self.errors);
         let l = self.skipped + self.redownloading + self.errors > 0;
-        let mut m = vec![
+        let mut m = [
             if self.skipped > 0 { &m1 } else { "" },
             if self.skipped > 0 && (self.redownloading > 0 || self.errors > 0) {
                 ", "
@@ -174,7 +174,7 @@ where
         //&main_bar,
         ProgressBar::new_spinner()
             .with_style(spin_style())
-            .with_message(format!("{title}")),
+            .with_message(title.to_string()),
     );
     let u = get_download_link(client, url, "flac")
         .await

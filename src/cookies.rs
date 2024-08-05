@@ -11,7 +11,7 @@ pub enum Browser {
 }
 
 impl Browser {
-    pub fn to_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Firefox => "firefox",
         }
@@ -35,7 +35,7 @@ impl FromStr for Browser {
 
 impl Display for Browser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_str())
+        write!(f, "{}", self.as_str())
     }
 }
 
