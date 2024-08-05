@@ -1,4 +1,12 @@
-use std::{error::Error, path::Path, process::ExitCode, sync::Arc};
+use std::{
+    error::Error,
+    path::Path,
+    process::ExitCode,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 mod api;
 mod cli;
@@ -9,7 +17,7 @@ mod http;
 use clap::Parser;
 use cli::Options;
 use http::Outcome;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{DecimalBytes, MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::time::Duration;
 use tokio::{
@@ -55,71 +63,65 @@ fn dl_style() -> ProgressStyle {
 
 struct DownloadStatus {
     bar: ProgressBar,
-    downloaded_bytes: u64,
-    downloaded: u64,
-    skipped: u64,
-    redownloading: u64,
-    errors: u64,
+    downloaded_bytes: AtomicU64,
+    downloaded: AtomicU64,
+    skipped: AtomicU64,
+    redownloading: AtomicU64,
+    errors: AtomicU64,
 }
 
 impl DownloadStatus {
     fn new(bar: ProgressBar) -> Self {
         let b = DownloadStatus {
             bar,
-            downloaded_bytes: 0,
-            downloaded: 0,
-            skipped: 0,
-            redownloading: 0,
-            errors: 0,
+            downloaded_bytes: Default::default(),
+            downloaded: Default::default(),
+            skipped: Default::default(),
+            redownloading: Default::default(),
+            errors: Default::default(),
         };
         b._update();
         b
     }
     fn _update(&self) {
-        let m1 = format!("{} skipped", self.skipped);
-        let m2 = format!("{} redownloaded", self.redownloading);
-        let m3 = format!("{} error", self.errors);
-        let l = self.skipped + self.redownloading + self.errors > 0;
-        let mut m = [
-            if self.skipped > 0 { &m1 } else { "" },
-            if self.skipped > 0 && (self.redownloading > 0 || self.errors > 0) {
-                ", "
-            } else {
-                ""
-            },
-            if self.redownloading > 0 { &m2 } else { "" },
-            if self.skipped > 0 && self.redownloading > 0 {
-                ", "
-            } else {
-                ""
-            },
-            if self.errors > 0 { &m3 } else { "" },
+        let m = [
+            format!(
+                "total bytes: {}",
+                DecimalBytes(self.downloaded_bytes.load(Ordering::Acquire))
+            ),
+            format!("skipped: {}", self.skipped.load(Ordering::Acquire)),
+            format!(
+                "redownloaded: {}",
+                self.redownloading.load(Ordering::Acquire)
+            ),
+            format!("errors: {}", self.errors.load(Ordering::Acquire)),
         ]
-        .join("");
-        if l {
-            m = format!(" ({m})");
-        }
-        self.bar.set_position(self.downloaded);
-        self.bar.set_message(format!("downloading collection {m}"));
+        .join(", ");
+        self.bar.set_message(m);
+        self.bar.tick();
     }
-    fn update(&mut self, outcome: Option<&Outcome>) {
-        self.downloaded += 1;
-        if let Some(o) = outcome {
+    fn update(&self, outcome: Option<&Outcome>) {
+        let d = self.downloaded.fetch_add(1, Ordering::AcqRel) + 1;
+        let (bytes, skip, redown, err) = if let Some(o) = outcome {
             match o {
                 Outcome::Download(b) => {
-                    self.downloaded_bytes += b;
+                    let n = self.downloaded_bytes.fetch_add(*b, Ordering::AcqRel) + *b;
+                    (Some(n), None, None, None)
                 }
                 Outcome::Existing => {
-                    self.skipped += 1;
+                    let s = self.skipped.fetch_add(1, Ordering::AcqRel) + 1;
+                    (None, Some(s), None, None)
                 }
                 Outcome::Redownload(b) => {
-                    self.downloaded_bytes += b;
-                    self.redownloading += 1;
+                    let n = self.downloaded_bytes.fetch_add(*b, Ordering::AcqRel);
+                    let r = self.redownloading.fetch_add(1, Ordering::AcqRel);
+                    (Some(n), None, Some(r), None)
                 }
             }
         } else {
-            self.errors += 1;
-        }
+            let e = self.errors.fetch_add(1, Ordering::AcqRel) + 1;
+            (None, None, None, Some(e))
+        };
         self._update();
     }
 }
@@ -133,7 +135,9 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: For
             .with_style(bar_style())
             .with_message("Downloading collection"),
     );
-    let p = Arc::new(Mutex::new(DownloadStatus::new(p)));
+    //let p = Arc::new(Mutex::new(DownloadStatus::new(p)));
+    let stat = mult.add(ProgressBar::new_spinner().with_style(spin_style()));
+    let status = Arc::new(DownloadStatus::new(stat.clone()));
 
     for (it, url) in items {
         let a = sem.clone().acquire_owned().await.unwrap();
@@ -144,6 +148,7 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: For
         let mut mult = mult.clone();
         let path = dest.join(it.to_path());
         let title = it.display();
+        let status = status.clone();
         let j = spawn(async move {
             // let itemp = progress.add(spinner());
             // itemp.start(&title);
@@ -156,11 +161,13 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: For
                     Some(o)
                 }
                 Err(e) => {
-                    p.lock().await.bar.suspend(|| eprintln!("{}", e));
+                    mult.suspend(|| eprintln!("{}", e));
                     None
                 }
             };
-            p.lock().await.update(out.as_ref());
+            //p.lock().await.update(out.as_ref());
+            status.update(out.as_ref());
+            p.inc(1);
             //itemp.stop("finished");
             sleep(Duration::from_secs(1)).await;
             drop(a);
@@ -171,6 +178,7 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: For
     for h in handles.drain(..) {
         let _i = h.await.unwrap();
     }
+    stat.finish();
 }
 
 async fn download_item<F>(
