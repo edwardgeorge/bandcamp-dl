@@ -1,4 +1,9 @@
-use std::{error::Error, path::Path, str::from_utf8, sync::Arc};
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+    str::from_utf8,
+    sync::Arc,
+};
 
 use futures_util::StreamExt as _;
 use mailparse::DispositionType;
@@ -57,7 +62,7 @@ pub async fn download_file<F>(
     url: &str,
     target: &Path,
     progress_cb: Option<F>,
-) -> Result<Outcome, Box<dyn Error>>
+) -> Result<(String, Outcome), Box<dyn Error>>
 where
     F: Fn(u64, u64),
 {
@@ -77,7 +82,7 @@ where
             .map_err(|e| format!("Could not decode disposition header from UTF8: {e}"))
     })?;
     let filename = crate::http::filename_from_disposition(disposition)?;
-    let target_file = target.join(filename);
+    let target_file = target.join(&filename);
     let mut outcome = Outcome::Download(len);
     if !target.exists() {
         create_dir_all(target).await?;
@@ -91,7 +96,7 @@ where
                 );
                 outcome = Outcome::Redownload(len);
             } else {
-                return Ok(Outcome::Existing);
+                return Ok((filename, Outcome::Existing));
             }
         } else {
             return Err(format!(
@@ -101,7 +106,7 @@ where
             .into());
         }
     }
-    let mut f = crate::file::AtomicFile::open(target_file).await?;
+    let mut f = crate::file::AtomicFile::open(&target_file).await?;
     let mut bytestream = r.bytes_stream();
     let mut bytes = 0;
     if let Some(f) = progress_cb.as_ref() {
@@ -116,5 +121,5 @@ where
         }
     }
     f.commit().await?;
-    Ok(outcome)
+    Ok((filename, outcome))
 }

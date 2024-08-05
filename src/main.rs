@@ -61,6 +61,15 @@ fn dl_style() -> ProgressStyle {
     .progress_chars("█▇▆▅▄▃▂▁  ")
 }
 
+#[inline]
+fn finish_style() -> ProgressStyle {
+    ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.green/green}            ↓ {decimal_total_bytes:12} {msg}",
+    )
+    .unwrap()
+    .progress_chars("█▇▆▅▄▃▂▁  ")
+}
+
 struct DownloadStatus {
     bar: ProgressBar,
     downloaded_bytes: AtomicU64,
@@ -169,7 +178,15 @@ async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: For
             status.update(out.as_ref());
             p.inc(1);
             //itemp.stop("finished");
+            let w = mult.add(
+                ProgressBar::new_spinner()
+                    .with_style(spin_style())
+                    .with_message("waiting..."),
+            );
+            w.enable_steady_tick(Duration::from_millis(100));
             sleep(Duration::from_secs(1)).await;
+            w.finish();
+            mult.remove(&w);
             drop(a);
             out
         });
@@ -209,7 +226,7 @@ where
             .with_style(dl_style())
             .with_message(title.to_owned()),
     );
-    let r = http::download_file(
+    let (_p, r) = http::download_file(
         client,
         &u,
         target,
@@ -219,6 +236,7 @@ where
         }),
     )
     .await?;
+    s.set_style(finish_style());
     s.finish();
     if let Outcome::Existing = &r {
         mult.remove(&s);
