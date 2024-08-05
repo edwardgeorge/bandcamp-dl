@@ -10,21 +10,17 @@ use std::{
 
 mod api;
 mod cli;
-mod cookies;
-mod file;
-mod http;
 
 use clap::Parser;
 use cli::Options;
-use http::Outcome;
+use dlcommon::{
+    cookies::get_cookies,
+    http::{download_file, get_client, Outcome},
+};
 use indicatif::{DecimalBytes, MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::time::Duration;
-use tokio::{
-    spawn,
-    sync::{Mutex, Semaphore},
-    time::sleep,
-};
+use tokio::{spawn, sync::Semaphore, time::sleep};
 
 use api::*;
 
@@ -64,7 +60,7 @@ fn dl_style() -> ProgressStyle {
 #[inline]
 fn finish_style() -> ProgressStyle {
     ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:40.green/green}            ↓ {decimal_total_bytes:12} {msg}",
+        "[{elapsed_precise:.dim}] {bar:40.green.dim/green.dim}            ↓ {decimal_total_bytes:12.dim} {msg:.dim}",
     )
     .unwrap()
     .progress_chars("█▇▆▅▄▃▂▁  ")
@@ -226,7 +222,7 @@ where
             .with_style(dl_style())
             .with_message(title.to_owned()),
     );
-    let (_p, r) = http::download_file(
+    let (_p, r) = download_file(
         client,
         &u,
         target,
@@ -273,8 +269,8 @@ macro_rules! try_spin {
 }
 
 async fn run(options: Options) -> Result<(), Box<dyn Error>> {
-    let c = try_spin!(format!("getting cookies from {}", options.browser), cookies::get_cookies(options.browser); |_v, s| { s.set_message("got cookies"); })?;
-    let client = http::get_client(Some(Arc::new(c)))?;
+    let c = try_spin!(format!("getting cookies from {}", options.browser), get_cookies(options.browser); |_v, s| { s.set_message("got cookies"); })?;
+    let client = get_client(Some(Arc::new(c)))?;
     let summary = try_spin!("checking credentials", collection_summary(&client).await; |summary, s| {
         s.set_message(format!(
             "logged in as {} ({})",

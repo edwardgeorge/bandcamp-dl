@@ -4,28 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.11", features = ["cargo", "derive"] }
-console = "0.15.8"
-cookie = "0.18.1"
-env_logger = "0.11.5"
-futures-util = "0.3.30"
+clap = { version = "4.5.13", features = ["cargo", "derive"] }
+dlcommon = { git = "https://github.com/edwardgeorge/dlcommon-rs.git" }
 indicatif = "0.17.8"
 log = "0.4.22"
-mailparse = "0.15.0"
-percent-encoding = "2.3.1"
-rand = "0.8.5"
 reqwest = { version = "0.12.5", features = [
     "cookies",
     "gzip",
     "json",
     "stream",
 ] }
-reqwest_cookie_store = "0.8.0"
-rookie = "0.5.2"
 sanitize-filename = "0.5.0"
 scraper = "0.19.1"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.121"
 strum = { version = "0.26.3", features = ["derive"] }
-time = "0.3.36"
 tokio = { version = "1.39.2", features = ["full"] }

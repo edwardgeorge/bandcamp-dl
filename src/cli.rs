@@ -1,7 +1,8 @@
 use clap::Parser;
+use dlcommon::cookies::Browser;
 use std::path::PathBuf;
 
-use crate::{api::Format, cookies::Browser};
+use crate::Format;
 
 #[derive(Debug, Clone, Parser)]
 #[command(version, about)]
