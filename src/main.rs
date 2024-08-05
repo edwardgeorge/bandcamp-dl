@@ -8,7 +8,6 @@ mod http;
 
 use clap::Parser;
 use cli::Options;
-use console::Emoji;
 use http::Outcome;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -20,8 +19,6 @@ use tokio::{
 };
 
 use api::*;
-
-const S_SPINNER: Emoji = Emoji("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◇", "•oO0o");
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -37,7 +34,7 @@ async fn main() -> ExitCode {
 
 #[inline]
 fn spin_style() -> ProgressStyle {
-    ProgressStyle::default_spinner().tick_chars(&S_SPINNER.to_string())
+    ProgressStyle::default_spinner().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏◇")
 }
 
 #[inline]
