@@ -1,4 +1,4 @@
-use std::{error::Error, io::Write, path::Path, sync::Arc};
+use std::{error::Error, io::Write, path::Path, str::from_utf8, sync::Arc};
 
 use futures_util::StreamExt as _;
 use mailparse::DispositionType;
@@ -68,11 +68,14 @@ where
         .ok_or("No content-length header")?
         .to_str()?
         .parse()?;
-    let disposition = r
+    let disposition_header = r
         .headers()
         .get("Content-disposition")
-        .ok_or("No content-disposition header")?
-        .to_str()?;
+        .ok_or("No content-disposition header")?;
+    let disposition = disposition_header.to_str().or_else(|_| {
+        from_utf8(disposition_header.as_bytes())
+            .map_err(|e| format!("Could not decode disposition header from UTF8: {e}"))
+    })?;
     let filename = crate::http::filename_from_disposition(disposition)?;
     let target_file = target.join(filename);
     let mut outcome = Outcome::Download;
