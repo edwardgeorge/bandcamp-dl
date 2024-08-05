@@ -360,7 +360,6 @@ dependencies = [
  "env_logger",
  "futures-util",
  "indicatif",
- "lazy_static",
  "log",
  "mailparse",
  "percent-encoding",

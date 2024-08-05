@@ -1,16 +1,15 @@
 pub mod types;
 
-use std::error::Error;
+use std::{error::Error, sync::OnceLock};
 
-use lazy_static::lazy_static;
 use reqwest::{Client, Response};
 use scraper::{Html, Selector};
 use serde::de::DeserializeOwned;
 pub use types::*;
 
-lazy_static! {
-    //static ref PAGE_FOOTER: Selector = Selector::parse("div#centerWrapper page-footer").unwrap();
-    static ref PAGE_DATA: Selector = Selector::parse("div#pagedata").unwrap();
+fn page_data_sel() -> &'static Selector {
+    static MEM: OnceLock<Selector> = OnceLock::new();
+    MEM.get_or_init(|| Selector::parse("div#pagedata").unwrap())
 }
 
 pub async fn resp_deser<T>(resp: Response) -> Result<T, Box<dyn Error>>
@@ -42,7 +41,7 @@ pub async fn collection_summary(
 pub async fn user_profile(client: &Client, url: &str) -> Result<ProfileData, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
     let doc = Html::parse_document(&r.text().await?);
-    if let Some(el) = doc.select(&PAGE_DATA).next() {
+    if let Some(el) = doc.select(page_data_sel()).next() {
         let a = el
             .attr("data-blob")
             .ok_or("No data-blob attribute found on pagedata element")?;
@@ -72,7 +71,7 @@ pub async fn get_download_link(
 ) -> Result<String, Box<dyn Error>> {
     let r = client.get(url).send().await?.error_for_status()?;
     let doc = Html::parse_document(&r.text().await?);
-    if let Some(el) = doc.select(&PAGE_DATA).next() {
+    if let Some(el) = doc.select(page_data_sel()).next() {
         let a = el
             .attr("data-blob")
             .ok_or("data-blob attribute not found")?;
