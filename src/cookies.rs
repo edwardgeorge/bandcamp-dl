@@ -3,15 +3,20 @@ use std::error::Error;
 use clap::ValueEnum;
 use reqwest::Url;
 use reqwest_cookie_store::{CookieStore, CookieStoreMutex, RawCookie};
-use rookie::{enums::Cookie, firefox};
+use rookie::{brave, chrome, edge, enums::Cookie, firefox, opera, safari};
 use strum::{Display, EnumString};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display, Default, ValueEnum)]
 #[strum(serialize_all = "lowercase")]
 pub enum Browser {
+    Brave,
+    Chrome,
+    Edge,
     #[default]
     Firefox,
+    Opera,
+    Safari,
 }
 
 impl Browser {
@@ -22,7 +27,12 @@ impl Browser {
     // }
     fn get_cookies(&self, domains: Option<Vec<String>>) -> Result<Vec<Cookie>, Box<dyn Error>> {
         Ok(match self {
+            Self::Brave => brave(domains)?,
+            Self::Edge => edge(domains)?,
             Self::Firefox => firefox(domains)?,
+            Self::Chrome => chrome(domains)?,
+            Self::Opera => opera(domains)?,
+            Self::Safari => safari(domains)?,
         })
     }
 }
