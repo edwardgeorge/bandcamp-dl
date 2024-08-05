@@ -55,6 +55,7 @@ fn dl_style() -> ProgressStyle {
 
 struct DownloadStatus {
     bar: ProgressBar,
+    downloaded_bytes: u64,
     downloaded: u64,
     skipped: u64,
     redownloading: u64,
@@ -65,6 +66,7 @@ impl DownloadStatus {
     fn new(bar: ProgressBar) -> Self {
         let b = DownloadStatus {
             bar,
+            downloaded_bytes: 0,
             downloaded: 0,
             skipped: 0,
             redownloading: 0,
@@ -104,11 +106,14 @@ impl DownloadStatus {
         self.downloaded += 1;
         if let Some(o) = outcome {
             match o {
-                Outcome::Download(_) => {}
+                Outcome::Download(b) => {
+                    self.downloaded_bytes += b;
+                }
                 Outcome::Existing => {
                     self.skipped += 1;
                 }
-                Outcome::Redownload(_) => {
+                Outcome::Redownload(b) => {
+                    self.downloaded_bytes += b;
                     self.redownloading += 1;
                 }
             }
@@ -269,7 +274,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     .into_iter()
     .filter(|(it, _)| {
         if !it.download_available() {
-            eprintln!("'{}' has no downloads available.", it.display());
+            eprintln!("⚠ '{}' has no downloads available.", it.display());
             false
         } else {
             true
