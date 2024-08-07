@@ -849,11 +849,12 @@ dependencies = [
 [[package]]
 name = "dlcommon"
 version = "0.1.0"
-source = "git+https://github.com/edwardgeorge/dlcommon-rs.git#8700db7298d4d6621010a8d09f78f7e1d23e81cc"
+source = "git+https://github.com/edwardgeorge/dlcommon-rs.git#c12e40a346d37a802ae0981cfbeecadd67e42d46"
 dependencies = [
  "clap",
  "derive_builder",
  "futures-util",
+ "indicatif",
  "log",
  "mailparse",
  "percent-encoding",
