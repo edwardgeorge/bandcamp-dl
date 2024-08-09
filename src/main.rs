@@ -1,11 +1,8 @@
 use std::{
     error::Error,
-    path::Path,
+    path::{Path, PathBuf},
     process::ExitCode,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 
 mod api;
@@ -15,12 +12,13 @@ use clap::Parser;
 use cli::Options;
 use dlcommon::{
     cookies::get_cookies,
-    http::{download_file, get_client, Outcome},
+    http::{get_client, FileDownload},
+    operation::{Operation, Source},
 };
-use indicatif::{DecimalBytes, MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::time::Duration;
-use tokio::{spawn, sync::Semaphore, time::sleep};
+use tokio::sync::Semaphore;
 
 use api::*;
 
@@ -48,197 +46,81 @@ fn bar_style() -> ProgressStyle {
         .progress_chars("█▓▒░▫")
 }
 
-#[inline]
-fn dl_style() -> ProgressStyle {
-    ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:40.cyan/blue} {decimal_bytes:>12}/{decimal_total_bytes:12} {msg}",
-    )
-    .unwrap()
-    .progress_chars("█▇▆▅▄▃▂▁  ")
-}
-
-#[inline]
-fn finish_style() -> ProgressStyle {
-    ProgressStyle::with_template(
-        "[{elapsed_precise:.dim}] {bar:40.green.dim/green.dim}            ↓ {decimal_total_bytes:12.dim} {msg:.dim}",
-    )
-    .unwrap()
-    .progress_chars("█▇▆▅▄▃▂▁  ")
-}
-
-struct DownloadStatus {
-    bar: ProgressBar,
-    downloaded_bytes: AtomicU64,
-    downloaded: AtomicU64,
-    skipped: AtomicU64,
-    redownloading: AtomicU64,
-    errors: AtomicU64,
-}
-
-impl DownloadStatus {
-    fn new(bar: ProgressBar) -> Self {
-        let b = DownloadStatus {
-            bar,
-            downloaded_bytes: Default::default(),
-            downloaded: Default::default(),
-            skipped: Default::default(),
-            redownloading: Default::default(),
-            errors: Default::default(),
-        };
-        b._update();
-        b
-    }
-    fn _update(&self) {
-        let m = [
-            format!(
-                "total bytes: {}",
-                DecimalBytes(self.downloaded_bytes.load(Ordering::Acquire))
-            ),
-            format!("skipped: {}", self.skipped.load(Ordering::Acquire)),
-            format!(
-                "redownloaded: {}",
-                self.redownloading.load(Ordering::Acquire)
-            ),
-            format!("errors: {}", self.errors.load(Ordering::Acquire)),
-        ]
-        .join(", ");
-        self.bar.set_message(m);
-        self.bar.tick();
-    }
-    fn update(&self, outcome: Option<&Outcome>) {
-        let d = self.downloaded.fetch_add(1, Ordering::AcqRel) + 1;
-        let (bytes, skip, redown, err) = if let Some(o) = outcome {
-            match o {
-                Outcome::Download(b) => {
-                    let n = self.downloaded_bytes.fetch_add(*b, Ordering::AcqRel) + *b;
-                    (Some(n), None, None, None)
-                }
-                Outcome::Existing => {
-                    let s = self.skipped.fetch_add(1, Ordering::AcqRel) + 1;
-                    (None, Some(s), None, None)
-                }
-                Outcome::Redownload(b) => {
-                    let n = self.downloaded_bytes.fetch_add(*b, Ordering::AcqRel);
-                    let r = self.redownloading.fetch_add(1, Ordering::AcqRel);
-                    (Some(n), None, Some(r), None)
-                }
-            }
-        } else {
-            let e = self.errors.fetch_add(1, Ordering::AcqRel) + 1;
-            (None, None, None, Some(e))
-        };
-        self._update();
-    }
-}
-
-async fn download_all(client: Arc<Client>, items: &[(Item, String)], format: Format, dest: &Path) {
-    let sem = Arc::new(Semaphore::new(4));
-    let mut handles = vec![];
-    let mult = MultiProgress::new();
-    let p = mult.add(
-        ProgressBar::new(items.len() as u64)
-            .with_style(bar_style())
-            .with_message("Downloading collection"),
-    );
-    //let p = Arc::new(Mutex::new(DownloadStatus::new(p)));
-    let stat = mult.add(ProgressBar::new_spinner().with_style(spin_style()));
-    let status = Arc::new(DownloadStatus::new(stat.clone()));
-
-    for (it, url) in items {
-        let a = sem.clone().acquire_owned().await.unwrap();
-        let client = client.clone();
-        let url = url.to_owned();
-        let p = p.clone();
-        // let progress = progress.clone();
-        let mut mult = mult.clone();
-        let path = dest.join(it.to_path());
-        let title = it.display();
-        let status = status.clone();
-        let j = spawn(async move {
-            // let itemp = progress.add(spinner());
-            // itemp.start(&title);
-            let out = match download_item(&client, &url, format, &path, &title, &mut mult, |_| ())
-                .await
-                .map_err(|e| format!("Error downloading '{title}: {e})"))
-            {
-                Ok(o) => {
-                    // itemp.stop(format!("{}: downloaded", title));
-                    Some(o)
-                }
-                Err(e) => {
-                    mult.suspend(|| eprintln!("{}", e));
-                    None
-                }
-            };
-            //p.lock().await.update(out.as_ref());
-            status.update(out.as_ref());
-            p.inc(1);
-            //itemp.stop("finished");
-            let w = mult.add(
-                ProgressBar::new_spinner()
-                    .with_style(spin_style())
-                    .with_message("waiting..."),
-            );
-            w.enable_steady_tick(Duration::from_millis(100));
-            sleep(Duration::from_secs(1)).await;
-            w.finish();
-            mult.remove(&w);
-            drop(a);
-            out
-        });
-        handles.push(j);
-    }
-    for h in handles.drain(..) {
-        let _i = h.await.unwrap();
-    }
-    stat.finish();
-}
-
-async fn download_item<F>(
-    client: &Client,
-    url: &str,
+struct BandcampSource {
+    client: Arc<Client>,
+    semaphore: Arc<Semaphore>,
+    mult: Arc<MultiProgress>,
+    items: Vec<(Item, String)>,
     format: Format,
-    target: &Path,
-    title: &str,
-    mult: &mut MultiProgress,
-    outcome_cb: F,
-) -> Result<Outcome, Box<dyn Error>>
-where
-    F: Fn(&Outcome),
-{
-    let s = mult.add(
-        //&main_bar,
-        ProgressBar::new_spinner()
-            .with_style(spin_style())
-            .with_message(title.to_string()),
-    );
-    let u = get_download_link(client, url, format)
-        .await
-        .map_err(|e| format!("Attempting to get download link: {e}"))?;
-    s.finish();
-    mult.remove(&s);
-    let s = mult.add(
-        ProgressBar::new(0)
-            .with_style(dl_style())
-            .with_message(title.to_owned()),
-    );
-    let (_p, r) = download_file(
-        client,
-        &u,
-        target,
-        Some(|len, pos| {
-            s.set_length(len);
-            s.set_position(pos);
-        }),
-    )
-    .await?;
-    s.set_style(finish_style());
-    s.finish();
-    if let Outcome::Existing = &r {
-        mult.remove(&s);
+    dest: PathBuf,
+}
+
+impl Source for BandcampSource {
+    fn apply_to_downloads<F, R>(
+        self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<(), Box<dyn Error>>>
+    where
+        F: Fn(dlcommon::http::FileDownload) -> R,
+        R: std::future::Future<Output = Result<(), Box<dyn Error>>>,
+    {
+        async move {
+            for (item, url) in self.items {
+                let s = self.semaphore.clone().acquire_owned().await?;
+                let spin = self.mult.add(
+                    //&main_bar,
+                    ProgressBar::new_spinner()
+                        .with_style(spin_style())
+                        .with_message(item.display().to_string()),
+                );
+                spin.enable_steady_tick(Duration::from_millis(100));
+                let u = get_download_link(&self.client, &url, self.format)
+                    .await
+                    .map_err(|e| format!("Attempting to get download link: {e}"))?;
+                spin.finish();
+                self.mult.remove(&spin);
+                let dl = FileDownload::builder()
+                    .title(item.display())
+                    .url(u)
+                    .target(&self.dest)
+                    .preflight_head(false)
+                    .filename_use_content_disposition(dlcommon::http::UsagePref::Require)
+                    .build()?;
+                drop(s);
+                f(dl).await?;
+            }
+            Ok(())
+        }
     }
-    outcome_cb(&r);
-    Ok(r)
+    fn num_downloads(&self) -> u64 {
+        self.items.len() as u64
+    }
+}
+
+async fn download_all(
+    client: Arc<Client>,
+    items: Vec<(Item, String)>,
+    format: Format,
+    dest: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let sem = Arc::new(Semaphore::new(4));
+    let mult = Arc::new(MultiProgress::new());
+    let src = BandcampSource {
+        client: client.clone(),
+        dest: dest.to_owned(),
+        semaphore: sem.clone(),
+        mult: mult.clone(),
+        items,
+        format,
+    };
+    Operation::builder()
+        .client(client.clone())
+        .with_semaphore(sem)
+        .multiprogress(mult)
+        .build()?
+        .run(src)
+        .await?;
+    Ok(())
 }
 
 macro_rules! try_spin_inner {
@@ -305,6 +187,6 @@ async fn run(options: Options) -> Result<(), Box<dyn Error>> {
     })
     .collect::<Vec<_>>();
 
-    download_all(Arc::new(client), &items, options.format, &options.target).await;
+    download_all(Arc::new(client), items, options.format, &options.target).await?;
     Ok(())
 }
