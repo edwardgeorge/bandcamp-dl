@@ -849,7 +849,7 @@ dependencies = [
 [[package]]
 name = "dlcommon"
 version = "0.1.0"
-source = "git+https://github.com/edwardgeorge/dlcommon-rs.git#2728bad33d4a67cfeb0b67492324839305f69847"
+source = "git+https://github.com/edwardgeorge/dlcommon-rs.git#989eb3c3ecc6b41c474152514e9edc3980ff8676"
 dependencies = [
  "clap",
  "derive_builder",
