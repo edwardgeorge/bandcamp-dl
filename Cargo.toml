@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.15", features = ["cargo", "derive"] }
+clap = { version = "4.5.16", features = ["cargo", "derive"] }
 dlcommon = { git = "https://github.com/edwardgeorge/dlcommon-rs.git" }
 indicatif = "0.17.8"
 log = "0.4.22"
