@@ -8,7 +8,7 @@ clap = { version = "4.5.17", features = ["cargo", "derive"] }
 dlcommon = { git = "https://github.com/edwardgeorge/dlcommon-rs.git" }
 indicatif = "0.17.8"
 log = "0.4.22"
-reqwest = { version = "0.12.7", features = [
+reqwest = { version = "0.12.8", features = [
     "cookies",
     "gzip",
     "json",
